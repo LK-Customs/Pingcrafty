@@ -1,0 +1,51 @@
+# Core dependencies
+asyncio-throttle>=1.0.2
+aiofiles>=23.1.0
+aiosqlite>=0.19.0
+pyyaml>=6.0.1
+
+# Database support
+asyncpg>=0.28.0  # PostgreSQL support (optional)
+
+# Network and protocol
+aiohttp>=3.8.5
+dnspython>=2.4.0
+
+# Data processing
+ipaddress>=1.0.23
+python-dateutil>=2.8.2
+
+# Geolocation (optional)
+geoip2>=4.7.0
+maxminddb>=2.2.0
+ipwhois>=1.2.0
+
+# User interface
+rich>=13.4.2
+click>=8.1.6
+
+# Data export
+openpyxl>=3.1.2  # Excel export support
+pandas>=2.0.3    # Data manipulation (optional)
+
+# System monitoring
+psutil>=5.9.5
+
+# Security and validation
+validators>=0.20.0
+cryptography>=41.0.3
+
+# Development dependencies (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.1
+black>=23.7.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Documentation (optional)
+sphinx>=7.1.0
+sphinx-rtd-theme>=1.3.0
+
+# Packaging
+setuptools>=68.0.0
+wheel>=0.41.0 

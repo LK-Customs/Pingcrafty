@@ -1,0 +1,195 @@
+# PingCrafty v0.2 Configuration File
+# Complete configuration for modular Minecraft server scanner
+
+# Database configuration
+database:
+  type: "sqlite"  # Options: sqlite, postgresql
+  path: "servers.db"
+  
+  # PostgreSQL settings (when type is postgresql)
+  host: "localhost"
+  port: 5432
+  database: "pingcrafty"
+  user: "postgres"
+  password: "password"
+  pool_size: 10
+
+# Core scanner settings
+scanner:
+  timeout: 2.0                    # Connection timeout in seconds
+  protocol_version: 770           # Single protocol mode (1.21)
+  scan_all_protocols: true       # Set to true to scan all known protocols
+  protocol_versions:              # Custom protocol list (optional)
+    - 770  # 1.21
+    - 767  # 1.21
+    - 766  # 1.20.5-1.20.6
+    - 765  # 1.20.3-1.20.4
+    - 764  # 1.20.2
+    - 763  # 1.20-1.20.1
+    - 762  # 1.19.4
+    - 761  # 1.19.3
+    - 760  # 1.19.1-1.19.2
+    - 759  # 1.19
+    - 758  # 1.18.2
+    - 757  # 1.18-1.18.1
+    - 754  # 1.16.4-1.16.5
+    - 47   # 1.8.x
+    - 5    # 1.7.6-1.7.10
+  retries: 0                      # Number of retry attempts
+  legacy_support: true            # Support for legacy servers (pre-1.7)
+  rate_limit: 10000               # Maximum requests per second
+
+# Target discovery configuration
+discovery:
+  method: "range"                 # Options: range, masscan, file
+  ports: [25565, 25566, 25567]   # Ports to scan
+  batch_size: 1000               # Batch size for target generation
+  
+  # Masscan-specific settings
+  masscan_rate: 10000            # Masscan packets per second
+  masscan_excludes: "exclude.conf" # Exclusion file for masscan
+
+# Concurrency and performance
+concurrency:
+  max_concurrent: 1000           # Maximum concurrent connections
+  batch_size: 100                # Task batch size
+  max_connections_per_host: 10   # Per-host connection limit
+
+# Memory management
+memory:
+  max_memory_mb: 8192           # Maximum memory usage in MB
+  gc_interval: 1000             # Garbage collection interval (scans)
+  enable_monitoring: true        # Enable memory monitoring
+
+# IP blacklist configuration
+blacklist:
+  enabled: true                  # Enable IP blacklisting
+  auto_update: true             # Auto-update blacklist from file
+  file_path: "blacklist.txt"    # Blacklist file path
+
+# Geolocation and ISP detection
+geolocation:
+  enabled: false                 # Enable geolocation lookup
+  provider: "ipapi"             # Options: geoip2, ipapi
+  database_path: "GeoLite2-City.mmdb"  # GeoIP2 database path
+  cache_duration: 86400         # Cache duration in seconds (24 hours)
+
+# Webhook notifications (Discord, Slack, etc.)
+webhook:
+  enabled: false                # Enable webhook notifications
+  url: ""                       # Webhook URL
+  batch_size: 50               # Batch size for notifications
+  include_stats: true          # Include scan statistics in notifications
+
+# Logging configuration
+logging:
+  level: "INFO"                 # Options: DEBUG, INFO, WARNING, ERROR
+  file: "logs/pingcrafty.log"  # Log file path
+  max_size_mb: 100             # Maximum log file size
+  backup_count: 5              # Number of backup log files
+
+# User interface settings
+ui:
+  enabled: true                 # Enable interactive UI
+  refresh_rate: 4              # UI refresh rate (Hz)
+  show_details: true           # Show detailed information
+
+# Export settings
+export:
+  auto_export: false           # Auto-export results
+  format: "json"               # Default export format
+  include_raw_data: false      # Include raw server responses
+  compress: true               # Compress export files
+
+# Advanced scanner options
+advanced:
+  # Protocol options
+  enable_srv_lookup: true      # Enable SRV record lookup
+  enable_online_mode_check: true  # Check if server is in online mode
+  collect_player_samples: true    # Collect player sample data
+  collect_mod_data: true          # Collect mod/plugin information
+  
+  # Performance tuning
+  connection_pool_size: 1000      # Connection pool size
+  dns_cache_size: 10000          # DNS cache size
+  enable_tcp_nodelay: true       # Enable TCP_NODELAY
+  socket_keepalive: true         # Enable socket keepalive
+  
+  # Scanning behavior
+  randomize_scan_order: false    # Randomize IP scanning order
+  skip_private_ranges: false     # Skip private IP ranges
+  skip_reserved_ranges: true     # Skip reserved IP ranges
+  resume_on_restart: true        # Resume scanning on restart
+
+# Module-specific configurations
+modules:
+  # Statistics collection
+  statistics:
+    enabled: true
+    collect_detailed_stats: true
+    stats_interval: 60          # Statistics collection interval (seconds)
+  
+  # Data analysis
+  analysis:
+    enabled: false
+    detect_server_networks: true  # Detect server networks/hosting providers
+    identify_honeypots: false     # Attempt to identify honeypot servers
+    track_server_changes: true    # Track changes in server configurations
+  
+  # Security scanning
+  security:
+    enabled: false
+    check_vulnerabilities: false  # Check for known vulnerabilities
+    scan_open_ports: false       # Scan additional open ports
+    detect_proxy_servers: false  # Detect proxy/tunnel servers
+
+# Network configuration
+network:
+  # DNS settings
+  dns_servers: ["8.8.8.8", "8.8.4.4"]  # Custom DNS servers
+  dns_timeout: 3.0                      # DNS lookup timeout
+  
+  # Proxy settings (optional)
+  proxy_enabled: false
+  proxy_type: "socks5"           # Options: http, socks4, socks5
+  proxy_host: ""
+  proxy_port: 0
+  proxy_username: ""
+  proxy_password: ""
+  
+  # Rate limiting per target
+  per_host_rate_limit: 10        # Requests per second per host
+  burst_allowance: 50            # Burst allowance
+
+# Data retention policies
+retention:
+  # Server data retention
+  keep_server_data_days: 365     # Keep server data for X days
+  keep_scan_history_days: 90     # Keep scan history for X days
+  keep_player_data_days: 180     # Keep player data for X days
+  
+  # Cleanup settings
+  auto_cleanup_enabled: true     # Enable automatic cleanup
+  cleanup_interval_hours: 24     # Cleanup interval
+  compress_old_data: true        # Compress old data instead of deleting
+
+# Notification settings
+notifications:
+  # Console notifications
+  console_enabled: true
+  show_server_found: true        # Show notifications when servers are found
+  show_scan_progress: true       # Show scan progress updates
+  
+  # Desktop notifications (if supported)
+  desktop_enabled: false
+  notify_on_completion: true     # Notify when scan completes
+  notify_on_errors: false        # Notify on errors
+
+# Debugging and development
+debug:
+  enabled: false                 # Enable debug mode
+  save_raw_responses: false      # Save raw server responses
+  debug_protocol: false          # Debug protocol communications
+  debug_concurrency: false       # Debug concurrency issues
+  debug_memory: false            # Debug memory usage
+  profile_performance: false     # Enable performance profiling 

@@ -131,6 +131,7 @@ class MinecraftScanner:
         self.running = False
         self.paused = False
         self.modules: List[ScannerModule] = []
+        self.result_callback = None  # For real-time result reporting
         
         # Initialize components
         self._initialized = False
@@ -154,6 +155,10 @@ class MinecraftScanner:
     def add_module(self, module: ScannerModule) -> None:
         """Add a processing module"""
         self.modules.append(module)
+    
+    def set_result_callback(self, callback):
+        """Register a callback to be called with each found server result"""
+        self.result_callback = callback
     
     async def scan_range(self, ip_range: str) -> None:
         """Scan an IP range"""
@@ -195,12 +200,26 @@ class MinecraftScanner:
                 # Process completed tasks periodically
                 if len(tasks) >= self.config.concurrency.batch_size:
                     await self._process_completed_tasks(tasks)
+                
+                # Periodically send stats to webhook
+                if self.webhook and self.webhook.enabled and self.stats.total_scanned % 1000 == 0:
+                    try:
+                        await self.webhook.send_scan_stats(self.stats)
+                    except Exception as wh_exc:
+                        logger.debug(f"Webhook stats notification failed: {wh_exc}")
             
             # Wait for remaining tasks
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             
             await self._finalize_scan()
+            
+            # Send scan completion notification
+            if self.webhook and self.webhook.enabled:
+                try:
+                    await self.webhook.send_scan_complete(self.stats)
+                except Exception as wh_exc:
+                    logger.debug(f"Webhook completion notification failed: {wh_exc}")
             
         except Exception as e:
             logger.error(f"Scan failed: {e}")
@@ -214,53 +233,104 @@ class MinecraftScanner:
             await self._scan_target(target)
     
     async def _scan_target(self, target: tuple) -> None:
-        """Scan a single IP:port target"""
+        """Scan a single IP:port target with retry logic and robust error handling"""
         ip, port = target
-        
-        try:
-            # Check blacklist
-            if await self.blacklist.is_blacklisted(ip):
-                self.stats.blacklisted_skipped += 1
-                return
-            
-            # Perform the scan
-            start_time = time.time()
-            result = await self.protocol.ping_server(ip, port)
-            latency = (time.time() - start_time) * 1000  # ms
-            
-            if result:
-                # Parse server response
-                server_data = await self.parser.parse_response(result)
-                
-                # Create scan result
-                scan_result = ScanResult(
-                    ip=ip,
-                    port=port,
-                    success=True,
-                    server_data=server_data.__dict__ if hasattr(server_data, '__dict__') else server_data,
-                    latency=latency
-                )
-                
-                # Store in database
-                await self.db.store_server(scan_result)
-                
-                # Update statistics
-                self.stats.servers_found += 1
-                
-                # Process through modules
-                for module in self.modules:
-                    try:
-                        await module.process_result(scan_result)
-                    except Exception as e:
-                        logger.warning(f"Module processing failed: {e}")
-                
-                logger.info(f"Found server: {ip}:{port} ({server_data.version_name if hasattr(server_data, 'version_name') else 'Unknown'})")
-            
-            self.stats.total_scanned += 1
-            
-        except Exception as e:
-            logger.debug(f"Scan failed for {ip}:{port}: {e}")
-            self.stats.errors += 1
+        retries = getattr(self.protocol.config, 'retries', 0)
+        attempt = 0
+        while attempt <= retries:
+            try:
+                # Check blacklist
+                if await self.blacklist.is_blacklisted(ip):
+                    self.stats.blacklisted_skipped += 1
+                    return
+
+                # Perform the scan
+                start_time = time.time()
+                result = await self.protocol.ping_server(ip, port)
+                latency = (time.time() - start_time) * 1000  # ms
+
+                if result:
+                    # Parse server response
+                    server_data = await self.parser.parse_response(result)
+
+                    # Geolocation lookup and storage
+                    location_data = None
+                    from dataclasses import asdict, is_dataclass
+                    # Always convert to dict for augmentation
+                    if is_dataclass(server_data):
+                        server_data_dict = asdict(server_data)
+                    elif isinstance(server_data, dict):
+                        server_data_dict = server_data
+                    else:
+                        server_data_dict = dict(server_data) if server_data else {}
+                    if self.geolocation and self.geolocation.enabled:
+                        try:
+                            location_data = await self.geolocation.get_location_data(ip)
+                            if location_data:
+                                await self.geolocation.save_location_data(self.db, location_data)
+                                server_data_dict['country_code'] = location_data.country_code
+                                server_data_dict['country_name'] = location_data.country_name
+                                server_data_dict['region'] = location_data.region
+                                server_data_dict['city'] = location_data.city
+                                server_data_dict['latitude'] = location_data.latitude
+                                server_data_dict['longitude'] = location_data.longitude
+                                server_data_dict['isp'] = location_data.isp
+                                server_data_dict['asn'] = location_data.asn
+                                server_data_dict['asn_description'] = location_data.asn_description
+                        except Exception as geo_exc:
+                            logger.debug(f"Geolocation lookup failed for {ip}: {geo_exc}")
+                    scan_result = ScanResult(
+                        ip=ip,
+                        port=port,
+                        success=True,
+                        server_data=server_data_dict,
+                        latency=latency
+                    )
+
+                    # Store in database
+                    await self.db.store_server(scan_result)
+
+                    # Update statistics
+                    self.stats.servers_found += 1
+
+                    # Real-time result callback
+                    if self.result_callback:
+                        try:
+                            self.result_callback(server_data_dict)
+                        except Exception as cb_exc:
+                            logger.debug(f"Result callback error: {cb_exc}")
+                    # Webhook notification for found server
+                    if self.webhook and self.webhook.enabled:
+                        try:
+                            await self.webhook.send_server_found(scan_result)
+                        except Exception as wh_exc:
+                            logger.debug(f"Webhook notification failed: {wh_exc}")
+                    # Process through modules
+                    for module in self.modules:
+                        try:
+                            await module.process_result(scan_result)
+                        except Exception as e:
+                            logger.warning(f"Module processing failed: {e}")
+
+                    logger.info(f"Found server: {ip}:{port} ({server_data_dict.get('version_name', 'Unknown')})")
+                    break  # Success, exit retry loop
+                else:
+                    attempt += 1
+                    if attempt > retries:
+                        # Do not increment errors for no response (just no server)
+                        logger.debug(f"Scan found no server at {ip}:{port} after {retries+1} attempts (no response)")
+                    else:
+                        logger.debug(f"Scan found no server at {ip}:{port}, retrying ({attempt}/{retries})")
+                    await asyncio.sleep(0.1 * attempt)
+            except Exception as e:
+                attempt += 1
+                if attempt > retries:
+                    self.stats.errors += 1
+                    logger.debug(f"Scan failed for {ip}:{port} after {retries+1} attempts: {e}")
+                else:
+                    logger.debug(f"Scan error for {ip}:{port}, retrying ({attempt}/{retries}): {e}")
+                await asyncio.sleep(0.1 * attempt)
+        self.stats.total_scanned += 1
     
     async def _process_completed_tasks(self, tasks: List[asyncio.Task]) -> None:
         """Process completed tasks and remove them from the list"""

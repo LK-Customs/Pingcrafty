@@ -167,3 +167,30 @@ class IPDiscovery:
                 logger.info(f"Generated {target_count} targets")
         
         logger.info(f"Target generation complete: {target_count} total targets") 
+
+    async def estimate_total_targets(self, target_spec: str) -> Optional[int]:
+        """Estimate the total number of targets for progress reporting"""
+        try:
+            if self.config.method == 'range':
+                network = ipaddress.ip_network(target_spec, strict=False)
+                num_ips = sum(1 for _ in network.hosts())
+                return num_ips * len(self.config.ports)
+            elif self.config.method == 'file':
+                count = 0
+                with open(target_spec, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if ':' in line:
+                            count += 1
+                        else:
+                            count += len(self.config.ports)
+                return count
+            elif self.config.method == 'masscan':
+                return None  # Unknown in advance
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Failed to estimate total targets: {e}")
+            return None 

@@ -146,47 +146,26 @@ class DataExporter:
     async def _get_export_data(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Get data for export with optional filtering"""
         try:
-            # This would need to be implemented based on the database backend
-            # For now, we'll return a placeholder structure
-            
-            # Basic query to get all servers with latest status
-            query = """
-            SELECT 
-                s.ip, s.port, s.first_seen, s.last_seen,
-                ss.minecraft_version, ss.server_software, ss.online_mode,
-                ss.max_players, ss.online_players, ss.motd_clean, ss.latency_ms,
-                sl.country_code, sl.country_name, sl.isp
-            FROM servers s
-            LEFT JOIN (
-                SELECT ip, port, minecraft_version, server_software, online_mode,
-                       max_players, online_players, motd_clean, latency_ms,
-                       ROW_NUMBER() OVER (PARTITION BY ip, port ORDER BY scan_time DESC) as rn
-                FROM server_status
-            ) ss ON s.ip = ss.ip AND s.port = ss.port AND ss.rn = 1
-            LEFT JOIN server_locations sl ON s.ip = sl.ip
-            """
-            
-            # Apply filters if provided
-            if filters:
-                conditions = []
-                if 'version' in filters:
-                    conditions.append(f"ss.minecraft_version LIKE '%{filters['version']}%'")
-                if 'software' in filters:
-                    conditions.append(f"ss.server_software = '{filters['software']}'")
-                if 'online_mode' in filters:
-                    conditions.append(f"ss.online_mode = '{filters['online_mode']}'")
-                if 'country' in filters:
-                    conditions.append(f"sl.country_code = '{filters['country']}'")
-                
-                if conditions:
-                    query += " WHERE " + " AND ".join(conditions)
-            
-            query += " ORDER BY s.last_seen DESC"
-            
-            # Execute query (this would use the actual database backend)
-            # For now, return empty list as placeholder
-            return []
-            
+            # Use the database manager's list_servers or similar method
+            # For now, use list_servers and filter in Python if needed
+            if hasattr(self.db, 'list_servers'):
+                all_servers = await self.db.list_servers()
+            else:
+                all_servers = []
+            if not filters:
+                return all_servers
+            # Apply filters in Python
+            def match(server):
+                if 'version' in filters and filters['version'] not in server.get('minecraft_version', ''):
+                    return False
+                if 'software' in filters and filters['software'] != server.get('server_software', ''):
+                    return False
+                if 'online_mode' in filters and filters['online_mode'] != server.get('online_mode', ''):
+                    return False
+                if 'country' in filters and filters['country'] != server.get('country_code', ''):
+                    return False
+                return True
+            return [s for s in all_servers if match(s)]
         except Exception as e:
             logger.error(f"Failed to get export data: {e}")
             return []
@@ -258,28 +237,70 @@ class DataExporter:
         except Exception as e:
             logger.error(f"Failed to create summary sheet: {e}")
     
-    async def export_players(self, filename: str) -> bool:
-        """Export player data"""
+    async def export_players(self, filename: str, filters: Optional[Dict[str, Any]] = None) -> bool:
+        """Export player data to CSV or JSON"""
         try:
-            # This would query player-specific data
-            # Implementation depends on the database schema
-            
-            logger.info("Player export functionality not yet implemented")
-            return False
-            
+            if hasattr(self.db, 'list_players'):
+                all_players = await self.db.list_players()
+            else:
+                all_players = []
+            if not filters:
+                filtered = all_players
+            else:
+                def match(player):
+                    if 'name' in filters and filters['name'] not in player.get('last_known_name', ''):
+                        return False
+                    return True
+                filtered = [p for p in all_players if match(p)]
+            # Choose format by file extension
+            if filename.endswith('.json'):
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(filtered, f, indent=2, ensure_ascii=False, default=str)
+            else:
+                columns = ['uuid', 'last_known_name', 'first_seen', 'last_seen', 'total_servers_seen']
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=columns)
+                    writer.writeheader()
+                    for player in filtered:
+                        row = {col: player.get(col, '') for col in columns}
+                        writer.writerow(row)
+            logger.info(f"Exported {len(filtered)} players to {filename}")
+            return True
         except Exception as e:
             logger.error(f"Player export failed: {e}")
             return False
-    
-    async def export_mods(self, filename: str) -> bool:
-        """Export mod data"""
+
+    async def export_mods(self, filename: str, filters: Optional[Dict[str, Any]] = None) -> bool:
+        """Export mod data to CSV or JSON"""
         try:
-            # This would query mod-specific data
-            # Implementation depends on the database schema
-            
-            logger.info("Mod export functionality not yet implemented")
-            return False
-            
+            if hasattr(self.db, 'list_mods'):
+                all_mods = await self.db.list_mods()
+            else:
+                all_mods = []
+            if not filters:
+                filtered = all_mods
+            else:
+                def match(mod):
+                    if 'id' in filters and filters['id'] not in mod.get('mod_id', ''):
+                        return False
+                    if 'type' in filters and filters['type'] != mod.get('mod_type', ''):
+                        return False
+                    return True
+                filtered = [m for m in all_mods if match(m)]
+            # Choose format by file extension
+            if filename.endswith('.json'):
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(filtered, f, indent=2, ensure_ascii=False, default=str)
+            else:
+                columns = ['mod_id', 'mod_name', 'mod_type', 'first_seen']
+                with open(filename, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=columns)
+                    writer.writeheader()
+                    for mod in filtered:
+                        row = {col: mod.get(col, '') for col in columns}
+                        writer.writerow(row)
+            logger.info(f"Exported {len(filtered)} mods to {filename}")
+            return True
         except Exception as e:
             logger.error(f"Mod export failed: {e}")
             return False 

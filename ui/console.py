@@ -138,43 +138,55 @@ class ConsoleUI:
             try:
                 char = self._get_char_non_blocking()
                 if char:
+                    logger.debug(f"Key pressed: {char}")
                     self.key_queue.append(char.lower())
                 time.sleep(0.1)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Input handler error: {e}")
                 time.sleep(0.1)
     
     def _process_keyboard_input(self) -> None:
         """Process keyboard input from queue"""
         while self.key_queue:
             key = self.key_queue.pop(0)
+            logger.debug(f"Processing key: {key}")
             if key == 'p':
                 self._toggle_pause()
+                self.console.print("[yellow]Pause/Resume toggled[/yellow]")
             elif key == 's':
                 self._stop_scan()
+                self.console.print("[yellow]Scan stopped[/yellow]")
             elif key == 'q':
                 self._quit_application()
+                self.console.print("[yellow]Quit requested[/yellow]")
             elif key == 'r':
                 self._restart_scan()
+                self.console.print("[yellow]Restart requested[/yellow]")
             elif key == 'e':
                 self._export_data()
+                self.console.print("[yellow]Export requested[/yellow]")
     
     def _toggle_pause(self) -> None:
         """Toggle pause/resume"""
         if self.scanner.paused:
             self.scanner.resume()
             self.paused = False
+            logger.debug("Scanner resumed via UI")
         else:
             self.scanner.pause()
             self.paused = True
+            logger.debug("Scanner paused via UI")
     
     def _stop_scan(self) -> None:
         """Stop the current scan"""
         self.scanner.stop()
+        logger.debug("Scanner stop requested via UI")
     
     def _quit_application(self) -> None:
         """Quit the application"""
         self.scanner.stop()
         self.running = False
+        logger.debug("Quit requested via UI")
     
     def _restart_scan(self) -> None:
         """Restart the scan"""
@@ -183,8 +195,16 @@ class ConsoleUI:
     
     def _export_data(self) -> None:
         """Export scan data"""
-        # This would trigger data export functionality
-        pass
+        try:
+            from utils.export import DataExporter
+            exporter = DataExporter(self.scanner.db)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_file = f"pingcrafty_export_{timestamp}.json"
+            # This should be run in an async context, so you may need to use asyncio.create_task
+            asyncio.create_task(exporter.export_json(output_file))
+            self.console.print(f"[green]Exported data to {output_file}[/green]")
+        except Exception as e:
+            self.console.print(f"[red]Export failed: {e}[/red]")
     
     def _create_header(self) -> Panel:
         """Create header panel"""
@@ -217,15 +237,15 @@ class ConsoleUI:
         
         # Update progress
         stats = self.scanner.get_stats()
-        if stats.total_scanned > 0:
-            # This would need to be calculated based on the target range
-            estimated_total = 1000000  # Placeholder
-            percentage = (stats.total_scanned / estimated_total) * 100
-            self.scan_progress.update(
-                self.scan_task_id,
-                completed=percentage,
-                description=f"Scanned {stats.total_scanned:,} IPs"
-            )
+        if stats.total_scanned > 0 and self.total_targets:
+            percentage = (stats.total_scanned / self.total_targets) * 100
+        else:
+            percentage = 0
+        self.scan_progress.update(
+            self.scan_task_id,
+            completed=percentage,
+            description=f"Scanned {stats.total_scanned:,} IPs"
+        )
         
         return Panel(
             self.scan_progress,
@@ -283,20 +303,27 @@ class ConsoleUI:
         servers_table.add_column("Version", style="green", width=12)
         servers_table.add_column("Software", style="blue", width=10)
         servers_table.add_column("Players", style="yellow", width=8)
-        
-        # Get recent servers (this would need integration with the scanner)
-        for server in self.recent_servers[-10:]:  # Show last 10
-            ip_port = f"{server.get('ip', '')}:{server.get('port', 25565)}"
-            version = server.get('version', 'Unknown')[:12]
-            software = server.get('software', 'Unknown')[:10]
-            players = f"{server.get('online_players', 0)}/{server.get('max_players', 0)}"
-            
-            servers_table.add_row(ip_port, version, software, players)
-        
+
+        # Get recent servers (show last 10)
+        for server in self.recent_servers[-10:]:
+            try:
+                ip_port = f"{server.get('ip', '')}:{server.get('port', 25565)}"
+                # Try both 'version' and 'version_name' for compatibility
+                version = server.get('version_name') or server.get('version') or 'Unknown'
+                version = str(version)[:12]
+                # Try both 'server_type' and 'software'
+                software = server.get('server_type') or server.get('software') or 'Unknown'
+                software = str(software)[:10]
+                players = f"{server.get('online_players', 0)}/{server.get('max_players', 0)}"
+                servers_table.add_row(ip_port, version, software, players)
+            except Exception as e:
+                servers_table.add_row("[error]", "[error]", "[error]", "[error]")
+                logger.debug(f"Error displaying recent server: {e}")
+
         # Fill empty rows
         while len(servers_table.rows) < 5:
             servers_table.add_row("", "", "", "")
-        
+
         return Panel(
             servers_table,
             title="🎮 Recent Servers",
@@ -371,12 +398,18 @@ class ConsoleUI:
         """Run the console UI"""
         try:
             self._setup_terminal_input()
-            
+
+            # Register real-time result callback to update recent servers
+            self.scanner.set_result_callback(self.add_server_found)
+
             # Start input handler thread
             self.input_thread = threading.Thread(target=self._input_handler_thread)
             self.input_thread.daemon = True
             self.input_thread.start()
             
+            # When starting the scan, get the real total
+            self.total_targets = await self.scanner.discovery.estimate_total_targets(ip_range)
+
             with Live(
                 self.layout,
                 console=self.console,

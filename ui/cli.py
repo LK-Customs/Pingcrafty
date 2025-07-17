@@ -8,6 +8,7 @@ import signal
 import sys
 import time
 from typing import Optional, Dict, Any
+import argparse
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class CLIInterface:
         self.scanner = scanner
         self.running = True
         self.start_time = time.time()
+        self.total_targets = None  # For progress
         
         # Setup signal handlers
         self._setup_signal_handlers()
@@ -55,16 +57,18 @@ class CLIInterface:
         print()
     
     def _print_progress(self, stats) -> None:
-        """Print scan progress"""
+        """Print scan progress with percent complete if total_targets is known"""
         elapsed = time.time() - self.start_time
         hours = int(elapsed // 3600)
         minutes = int((elapsed % 3600) // 60)
         seconds = int(elapsed % 60)
-        
+        percent = ""
+        if self.total_targets:
+            percent = f" | {100 * stats.total_scanned / self.total_targets:.2f}% complete"
         print(f"\rProgress: {stats.total_scanned:,} scanned | "
               f"{stats.servers_found:,} found | "
               f"{stats.current_rate:.1f} IPs/sec | "
-              f"Elapsed: {hours:02d}:{minutes:02d}:{seconds:02d}", end="", flush=True)
+              f"Elapsed: {hours:02d}:{minutes:02d}:{seconds:02d}{percent}", end="", flush=True)
     
     def _print_server_found(self, server_data: Dict[str, Any]) -> None:
         """Print found server information"""
@@ -110,6 +114,14 @@ class CLIInterface:
             print("Press Ctrl+C to stop the scan")
             print()
             
+            # Estimate total targets for progress
+            self.total_targets = await self.scanner.discovery.estimate_total_targets(ip_range)
+            if self.total_targets:
+                print(f"Total targets to scan: {self.total_targets:,}")
+            
+            # Register real-time result callback
+            self.scanner.set_result_callback(self._print_server_found)
+            
             # Setup progress reporting
             last_progress_time = time.time()
             progress_interval = 5.0  # Update every 5 seconds
@@ -146,6 +158,7 @@ class CLIInterface:
             logger.error(f"CLI error: {e}")
         finally:
             self.running = False
+            await self.scanner.db.close()
     
     async def export_data(self, format_type: str = "json", output_file: Optional[str] = None) -> None:
         """Export scan data"""
@@ -192,20 +205,18 @@ class CLIInterface:
     async def show_stats(self) -> None:
         """Show current database statistics"""
         try:
-            # This would query the database for comprehensive stats
             print("📊 Database Statistics")
             print("-" * 40)
-            
-            # Get basic counts
-            # This would need integration with database manager
-            print("Total servers: N/A")
-            print("Online mode servers: N/A") 
-            print("Offline mode servers: N/A")
-            print("Unique players seen: N/A")
-            print("Total mods detected: N/A")
-            
+            total_servers = await self.scanner.db.get_total_servers()
+            online_offline = await self.scanner.db.get_online_offline_counts()
+            unique_players = await self.scanner.db.get_unique_players_count()
+            unique_mods = await self.scanner.db.get_unique_mods_count()
+            print(f"Total servers: {total_servers}")
+            print(f"Online mode servers: {online_offline.get('online', 0)}")
+            print(f"Offline mode servers: {online_offline.get('offline', 0)}")
+            print(f"Unique players seen: {unique_players}")
+            print(f"Total mods detected: {unique_mods}")
             print("-" * 40)
-            
         except Exception as e:
             print(f"❌ Failed to get statistics: {e}")
             logger.error(f"Stats error: {e}")
@@ -215,10 +226,72 @@ class CLIInterface:
         try:
             print(f"🔍 Searching for servers matching: {query}")
             print("-" * 40)
-            
-            # This would need integration with database search functionality
-            print("Search functionality not yet implemented")
-            
+            # Parse query string into filters
+            filters = {}
+            for part in query.split():
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    filters[k] = v
+                else:
+                    # If it's an IP or IP:port
+                    if '.' in part:
+                        filters['ip'] = part
+            # Query database
+            if hasattr(self.scanner.db, 'list_servers'):
+                all_servers = await self.scanner.db.list_servers()
+            else:
+                all_servers = []
+            def match(server):
+                if 'ip' in filters and filters['ip'] not in server.get('ip', ''):
+                    return False
+                if 'version' in filters and filters['version'] not in server.get('minecraft_version', ''):
+                    return False
+                if 'software' in filters and filters['software'] != server.get('server_software', ''):
+                    return False
+                if 'online_mode' in filters and filters['online_mode'] != server.get('online_mode', ''):
+                    return False
+                return True
+            results = [s for s in all_servers if match(s)]
+            if not results:
+                print("No matching servers found.")
+                return
+            for server in results:
+                ip = server.get('ip', '')
+                port = server.get('port', 25565)
+                version = server.get('minecraft_version', 'Unknown')
+                software = server.get('server_software', 'Unknown')
+                players = f"{server.get('online_players', 0)}/{server.get('max_players', 0)}"
+                print(f"{ip}:{port} | {software} {version} | Players: {players}")
         except Exception as e:
             print(f"❌ Search failed: {e}")
             logger.error(f"Search error: {e}") 
+
+    @staticmethod
+    def validate_config(config_path: str = "config.yaml") -> None:
+        """Validate configuration file and print result"""
+        from core.config import ConfigManager, ConfigError
+        try:
+            ConfigManager(config_path)
+            print(f"✅ Configuration at {config_path} is valid.")
+        except ConfigError as e:
+            print(f"❌ Configuration validation failed: {e}")
+    @staticmethod
+    def create_config(config_path: str = "config.yaml") -> None:
+        """Create a default configuration file"""
+        from core.config import ConfigManager
+        ConfigManager(config_path)._create_default_config()
+        print(f"✅ Default configuration created at {config_path}.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="PingCrafty CLI")
+    parser.add_argument("--validate-config", action="store_true", help="Validate configuration file")
+    parser.add_argument("--create-config", action="store_true", help="Create default configuration file")
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    args = parser.parse_args()
+    if args.validate_config:
+        CLIInterface.validate_config(args.config)
+    elif args.create_config:
+        CLIInterface.create_config(args.config)
+    else:
+        # ... existing CLI startup logic ...
+        pass 

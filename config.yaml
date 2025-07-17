@@ -37,7 +37,7 @@ scanner:
     - 5    # 1.7.6-1.7.10
   retries: 0                      # Number of retry attempts
   legacy_support: true            # Support for legacy servers (pre-1.7)
-  rate_limit: 10000               # Maximum requests per second
+  rate_limit: 1000000               # Maximum requests per second
 
 # Target discovery configuration
 discovery:
@@ -46,12 +46,12 @@ discovery:
   batch_size: 1000               # Batch size for target generation
   
   # Masscan-specific settings
-  masscan_rate: 10000            # Masscan packets per second
+  masscan_rate: 1000000            # Masscan packets per second
   masscan_excludes: "exclude.conf" # Exclusion file for masscan
 
 # Concurrency and performance
 concurrency:
-  max_concurrent: 1000           # Maximum concurrent connections
+  max_concurrent: 200           # Maximum concurrent connections
   batch_size: 100                # Task batch size
   max_connections_per_host: 10   # Per-host connection limit
 
@@ -69,7 +69,7 @@ blacklist:
 
 # Geolocation and ISP detection
 geolocation:
-  enabled: false                 # Enable geolocation lookup
+  enabled: true                 # Enable geolocation lookup
   provider: "ipapi"             # Options: geoip2, ipapi
   database_path: "GeoLite2-City.mmdb"  # GeoIP2 database path
   cache_duration: 86400         # Cache duration in seconds (24 hours)

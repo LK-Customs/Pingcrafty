@@ -21,6 +21,9 @@ from core.exceptions import PingCraftyError
 from ui.console import ConsoleUI
 from ui.cli import CLIInterface
 
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 def setup_logging(verbose: bool = False) -> None:
     """Setup logging configuration"""
     level = logging.DEBUG if verbose else logging.INFO

@@ -303,6 +303,68 @@ class CustomModule(ScannerModule):
 scanner.add_module(CustomModule())
 ```
 
+## 📚 User & Developer Documentation
+
+### Usage Example
+
+Run a basic scan on a local network:
+
+```bash
+python main.py --range 192.168.1.0/24
+```
+
+Export results to CSV:
+
+```bash
+python main.py --range 10.0.0.0/16 --no-ui --export results.csv --export-format csv
+```
+
+Validate your configuration:
+
+```bash
+python -m ui.cli --validate-config --config config.yaml
+```
+
+Create a default configuration:
+
+```bash
+python -m ui.cli --create-config --config config.yaml
+```
+
+### Module/Plugin Guide
+
+PingCrafty supports easy extension via modules. To add a custom module:
+
+1. **Create your module:**
+
+```python
+from core.scanner import ScannerModule, ScanResult
+
+class MyCustomModule(ScannerModule):
+    async def initialize(self, scanner):
+        # Setup logic
+        pass
+    async def process_result(self, result: ScanResult):
+        # Handle each scan result
+        print(f"Found server: {result.ip}:{result.port}")
+    async def finalize(self):
+        # Cleanup logic
+        pass
+```
+
+2. **Register your module with the scanner:**
+
+```python
+scanner = MinecraftScanner()
+scanner.add_module(MyCustomModule())
+```
+
+3. **Run the scanner as usual.**
+
+See the `core/scanner.py` and this README for more details.
+
+---
+
 ## 📈 Performance
 
 ### Benchmarks
